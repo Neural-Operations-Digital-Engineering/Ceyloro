@@ -1,11 +1,11 @@
 # Ceyloro Platform Windows Product Scope
 
-**Status:** Planning Only  
-**Versi:** Draft 0.1  
+**Status:** Implemented Baseline & Scoped  
+**Versi:** 1.0  
 **Sumber:** Master Product Scope Ceyloro, PRD Windows yang sudah ada, dan referensi visual radial wheel  
 **Platform:** Windows 10 2004 atau lebih baru  
 **Arsitektur:** `win-x64` dan `win-arm64`  
-**Hubungan:** Dokumen scope Windows; bukan pengganti PRD finalisasi Windows.
+**Hubungan:** Dokumen scope Windows; selaras dengan PRD finalisasi Windows.
 
 ## 1. Tujuan
 

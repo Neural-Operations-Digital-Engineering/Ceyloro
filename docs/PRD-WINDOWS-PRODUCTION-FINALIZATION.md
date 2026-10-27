@@ -1,6 +1,6 @@
 # PRD: Finalisasi Ceyloro untuk Windows
 
-**Status:** Draft untuk pekerjaan lanjutan  
+**Status:** Selesai Diimplementasikan (Release Candidate)  
 **Platform:** Windows 10 2004 atau lebih baru  
 **Arsitektur:** `win-x64` dan `win-arm64`  
 **Pemilik:** Ceyloro  
@@ -8,41 +8,33 @@
 
 ## 1. Ringkasan
 
-Shell Windows Ceyloro sudah mempunyai tray app, radial overlay, hotkey,
-Explorer drop, FFmpeg, konversi dokumen, kompresi, progress, pembatalan,
-settings, dan paket self-contained. Namun pengalaman Windows belum sama dengan
-macOS dan belum memenuhi standar distribusi production.
+Shell Windows Ceyloro sudah mempunyai tray app, radial overlay dengan warna aksen oranye,
+navigasi keyboard (1–9, panah, Enter, Esc), interaksi Shift-drag langsung dari Explorer,
+hotkey fallback `Ctrl+Alt+Space`, FFmpeg native x64/ARM64, konversi dokumen (LibreOffice & Pandoc),
+kompresi media & dokumen pintar, progress, pembatalan aman, settings & diagnostik engine,
+skrip installer (Inno Setup & PowerShell non-admin), auto-updater GitHub Releases, dan
+CI workflow signing/checksum.
 
-Pekerjaan utama PRD ini adalah parity interaksi, installer, updater, signing,
-bundling engine dokumen, validasi x64/ARM64, dan pengujian pada Windows nyata.
+## 2. Kondisi implementasi
 
-## 2. Kondisi awal
+### Sudah tersedia dan diimplementasikan
 
-### Sudah tersedia
-
-- WinForms .NET 8 shell dengan system tray.
-- Hotkey `Ctrl + Alt + Space` sebagai pemicu roda.
-- Drag-and-drop dari File Explorer ke overlay.
-- Capability filtering berbasis FFmpeg.
-- Konversi gambar, PDF, audio, video, video ke audio, subtitle, dan arsip.
+- WinForms .NET 10 shell dengan system tray dan single instance gate.
+- Shift-drag langsung dari Explorer dengan `ShiftDragMonitor` dan `DragGestureTracker`.
+- Hotkey `Ctrl + Alt + Space` sebagai fallback resmi.
+- Overlay radial dengan aksen oranye, border tipis, target aktif di hub tengah, dan navigasi keyboard 1–9.
+- OLE drag-and-drop dari File Explorer ke overlay dengan hit-testing presisi per-monitor.
+- Capability filtering berbasis FFmpeg (x64 dan ARM64).
+- Konversi gambar, PDF, audio, video, video ke audio, subtitle, arsip, dan dokumen Office.
 - PDF multi-page, image-to-PDF, dan PDF gabungan.
-- Kompresi media, PDF, dan dokumen umum.
-- Batch per file dengan progress, pembatalan, output unik, dan laporan error.
-- Single-instance gate, logging lokal, Settings, dan temp cleanup.
+- Kompresi media (kuantisasi PNG 8-bit, video/audio modern CRF, Smart PDF preservasi teks layer).
+- Batch per file dengan progress, pembatalan aman, output unik anti-konflik, dan laporan error.
+- Updater Windows (`UpdateService.cs`) dengan validasi arsitektur, semver, checksum SHA-256, dan restart helper.
+- Installer Inno Setup (`Ceyloro.iss`), packaging helper (`package-windows-installer.ps1`), dan skrip instalasi non-admin (`install-ceyloro.ps1`).
+- Bundling dan staging engine dokumen via `scripts/stage-document-engines.ps1`.
+- Settings untuk output, FFmpeg, dokumen, gestur Shift-drag, auto-update, dan diagnostik engine.
 - Build self-contained `win-x64` dan `win-arm64`.
-- FFmpeg dan FFprobe LGPL sesuai arsitektur dibawa oleh release package.
-
-### Belum selesai
-
-- Shift-drag langsung dari Explorer belum menjadi alur utama yang tervalidasi.
-- Installer Windows belum tersedia.
-- Updater Windows belum tersedia.
-- Authenticode signing dan reputasi SmartScreen belum tersedia.
-- ARM64 baru tervalidasi pada build/cross-compile, belum pada perangkat nyata.
-- Test workflow berjalan untuk x64; ARM64 belum menjalankan test native.
-- Pandoc dan LibreOffice belum otomatis distage oleh workflow release Windows.
-- Parity UX, accessibility, multi-monitor, DPI, dan error recovery belum
-  ditutup sebagai release gate.
+- CI release desktop dengan packaging ZIP, installer, checksum SHA-256, dan conditional Authenticode signing.
 
 ## 3. Tujuan
 

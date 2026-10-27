@@ -10,6 +10,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon trayIcon;
     private readonly HotKeyWindow hotKeyWindow;
     private readonly ShiftDragMonitor shiftDragMonitor;
+    private readonly UpdateService updateService = new();
     private readonly Icon brandedIcon;
     private RadialOverlayForm? overlay;
     private SettingsForm? settingsForm;
@@ -44,6 +45,13 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
         if (openOverlayOnStartup)
             Application.Idle += OpenOverlayOnFirstIdle;
+
+        if (settings.Current.AutoCheckUpdates)
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(4000);
+                await CheckForUpdatesAsync(userInitiated: false);
+            });
     }
 
     private void OpenOverlayOnFirstIdle(object? sender, EventArgs e)
@@ -57,9 +65,59 @@ public sealed class TrayApplicationContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add("Buka roda", null, (_, _) => OpenOverlay());
         menu.Items.Add("Pengaturan…", null, (_, _) => OpenSettings());
+        menu.Items.Add("Periksa pembaruan…", null, async (_, _) => await CheckForUpdatesAsync(userInitiated: true));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Keluar", null, (_, _) => ExitThread());
         return menu;
+    }
+
+    private async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        try
+        {
+            var result = await updateService.CheckForUpdatesAsync();
+            if (!result.HasUpdate)
+            {
+                if (userInitiated)
+                {
+                    MessageBox.Show(
+                        $"Ceyloro sudah menggunakan versi terbaru (v{result.CurrentVersion}).",
+                        "Pembaruan Ceyloro",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+                return;
+            }
+
+            var prompt = $"Versi baru Ceyloro tersedia!\n\n" +
+                         $"Versi terpasang: v{result.CurrentVersion}\n" +
+                         $"Versi terbaru: v{result.LatestVersion}\n\n" +
+                         (string.IsNullOrWhiteSpace(result.ReleaseNotes) ? string.Empty : $"Catatan Rilis:\n{result.ReleaseNotes}\n\n") +
+                         $"Apakah Anda ingin mengunduh dan memasang pembaruan sekarang?";
+
+            var choice = MessageBox.Show(prompt, "Pembaruan Ceyloro", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (choice != DialogResult.Yes)
+                return;
+
+            trayIcon.ShowBalloonTip(4000, "Ceyloro", "Mengunduh pembaruan…", ToolTipIcon.Info);
+            var zipPath = await updateService.DownloadAndVerifyAsync(result);
+
+            trayIcon.ShowBalloonTip(3000, "Ceyloro", "Memasang pembaruan dan memuat ulang…", ToolTipIcon.Info);
+            await Task.Delay(1000);
+            UpdateService.ApplyUpdateAndRestart(zipPath);
+        }
+        catch (Exception error)
+        {
+            AppLog.Write($"Pemeriksaan pembaruan gagal: {error.Message}");
+            if (userInitiated)
+            {
+                MessageBox.Show(
+                    $"Gagal memeriksa atau mengunduh pembaruan:\n{error.Message}",
+                    "Pembaruan Ceyloro",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
     }
 
     private void OpenOverlay()

@@ -267,6 +267,51 @@ public sealed class RadialOverlayForm : Form
         }
         if (availableTargets.Length == 0)
             return;
+
+        // Angka 1-9 untuk memilih petal
+        if (e.KeyCode >= Keys.D1 && e.KeyCode <= Keys.D9)
+        {
+            var targetIdx = e.KeyCode - Keys.D1;
+            if (targetIdx < availableTargets.Length)
+            {
+                selectedIndex = targetIdx;
+                Invalidate();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+        }
+        else if (e.KeyCode >= Keys.NumPad1 && e.KeyCode <= Keys.NumPad9)
+        {
+            var targetIdx = e.KeyCode - Keys.NumPad1;
+            if (targetIdx < availableTargets.Length)
+            {
+                selectedIndex = targetIdx;
+                Invalidate();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+        }
+
+        // Navigasi panah atau Tab untuk berpindah antar petal
+        if (e.KeyCode is Keys.Right or Keys.Down or Keys.Tab)
+        {
+            selectedIndex = (selectedIndex + 1) % availableTargets.Length;
+            Invalidate();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            return;
+        }
+        else if (e.KeyCode is Keys.Left or Keys.Up)
+        {
+            selectedIndex = selectedIndex <= 0 ? availableTargets.Length - 1 : selectedIndex - 1;
+            Invalidate();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            return;
+        }
+
         if (e.KeyCode is Keys.Enter or Keys.Return)
         {
             if (selectedIndex >= 0 && selectedIndex < availableTargets.Length && draggedFiles.Length > 0)
@@ -325,17 +370,39 @@ public sealed class RadialOverlayForm : Form
         for (var index = 0; index < count; index++)
         {
             var start = -90 + index * (360f / count) - sweep / 2;
-            var color = index == selectedIndex ? Color.FromArgb(196, 180, 224, 92) : Color.FromArgb(230, 38, 38, 38);
+            var isSelected = index == selectedIndex;
+            // Petal aktif memakai aksen oranye, petal netral gelap
+            var color = isSelected ? Color.FromArgb(245, 255, 140, 0) : Color.FromArgb(230, 38, 38, 38);
             using var brush = new SolidBrush(color);
             e.Graphics.FillPie(brush, outerRect, start, sweep);
+
+            // Border tipis pada petal (lebih tegas pada petal aktif)
+            var borderColor = isSelected ? Color.FromArgb(255, 255, 215, 150) : Color.FromArgb(70, 255, 255, 255);
+            using var pen = new Pen(borderColor, isSelected ? 1.5f : 1f);
+            e.Graphics.DrawPie(pen, outerRect, start, sweep);
+
             var radians = (start + sweep / 2) * Math.PI / 180;
             var labelCenter = new PointF(center.X + (float)Math.Cos(radians) * 110, center.Y + (float)Math.Sin(radians) * 110);
             DrawCentered(e.Graphics, availableTargets[index].ToUpperInvariant(), new RectangleF(labelCenter.X - 62, labelCenter.Y - 14, 124, 28), Color.White, 10, FontStyle.Bold);
         }
+
         using var hub = new SolidBrush(Color.FromArgb(245, 22, 22, 22));
         e.Graphics.FillEllipse(hub, hubRect);
-        DrawCentered(e.Graphics, "Ceyloro", new RectangleF(center.X - 60, center.Y - 12, 120, 24), Color.White, 13, FontStyle.Bold);
-        DrawCentered(e.Graphics, "Lepaskan file untuk pilih", new RectangleF(center.X - 90, center.Y + 20, 180, 20), Color.Gainsboro, 8, FontStyle.Regular);
+        using var hubBorderPen = new Pen(Color.FromArgb(60, 255, 255, 255), 1.5f);
+        e.Graphics.DrawEllipse(hubBorderPen, hubRect);
+
+        // Pusat wheel menampilkan target aktif jika ada pilihan
+        if (selectedIndex >= 0 && selectedIndex < availableTargets.Length)
+        {
+            var activeTarget = availableTargets[selectedIndex].ToUpperInvariant();
+            DrawCentered(e.Graphics, activeTarget, new RectangleF(center.X - 60, center.Y - 16, 120, 24), Color.FromArgb(255, 165, 0), 12, FontStyle.Bold);
+            DrawCentered(e.Graphics, "Lepaskan untuk pilih", new RectangleF(center.X - 90, center.Y + 12, 180, 20), Color.Gainsboro, 8, FontStyle.Regular);
+        }
+        else
+        {
+            DrawCentered(e.Graphics, "Ceyloro", new RectangleF(center.X - 60, center.Y - 12, 120, 24), Color.White, 13, FontStyle.Bold);
+            DrawCentered(e.Graphics, "Lepaskan file untuk pilih", new RectangleF(center.X - 90, center.Y + 20, 180, 20), Color.Gainsboro, 8, FontStyle.Regular);
+        }
     }
 
     private static void DrawCentered(Graphics graphics, string text, RectangleF bounds, Color color, float size, FontStyle style)

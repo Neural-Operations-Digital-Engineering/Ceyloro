@@ -48,7 +48,11 @@ var tests = new (string Name, Action Run)[]
     // AC-3 regression: PNG 8-bit quantization
     ("reduces PNG file size via 8-bit color quantization", QuantizedPngReducesSize),
     // AC-6 regression: DOCX compression preserves .docx extension
-    ("preserves .docx extension during document compression", DocxCompressionPreservesExtension)
+    ("preserves .docx extension during document compression", DocxCompressionPreservesExtension),
+    // W3 / Updater & Lifecycle tests
+    ("ceyloro version comparison and semantic ordering", CeyloroVersionComparison),
+    ("app settings preserves update and gesture flags", SettingsFlagsPreservation),
+    ("document engine locator handles missing binaries gracefully", DocumentEngineLocatorMissing)
 };
 
 var failures = new List<string>();
@@ -733,6 +737,50 @@ static void WriteZip(string path, params (string Name, string Content)[] entries
         using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
         writer.Write(content);
     }
+}
+
+static void CeyloroVersionComparison()
+{
+    var v1 = CeyloroVersion.Parse("v0.1.0");
+    var v2 = CeyloroVersion.Parse("0.1.1");
+    var v3 = CeyloroVersion.Parse("v0.2.0");
+    var v4 = CeyloroVersion.Parse("1.0.0");
+    var v1Same = CeyloroVersion.Parse("0.1.0");
+
+    Ensure(v1.CompareTo(v2) < 0, "v0.1.0 should be less than 0.1.1");
+    Ensure(v2.CompareTo(v3) < 0, "0.1.1 should be less than 0.2.0");
+    Ensure(v3.CompareTo(v4) < 0, "0.2.0 should be less than 1.0.0");
+    Ensure(v1.CompareTo(v1Same) == 0, "v0.1.0 should equal 0.1.0");
+    Ensure(v4.CompareTo(v1) > 0, "1.0.0 should be greater than v0.1.0");
+}
+
+static void SettingsFlagsPreservation()
+{
+    using var temp = new TestDirectory();
+    var settingsPath = Path.Combine(temp.Path, "settings.json");
+    var appSettings = new AppSettings
+    {
+        EnableShiftDragGesture = true,
+        AutoCheckUpdates = false
+    };
+    var json = System.Text.Json.JsonSerializer.Serialize(appSettings);
+    File.WriteAllText(settingsPath, json);
+
+    var loaded = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(settingsPath));
+    Ensure(loaded != null, "Settings should deserialize.");
+    Ensure(loaded!.EnableShiftDragGesture, "Shift-drag setting should be true.");
+    Ensure(!loaded.AutoCheckUpdates, "Auto-check update setting should be false.");
+}
+
+static void DocumentEngineLocatorMissing()
+{
+    var dummySettings = new AppSettings
+    {
+        LibreOfficePath = @"C:\NonExistent\Path\soffice.exe",
+        PandocPath = @"C:\NonExistent\Path\pandoc.exe"
+    };
+    var engines = DocumentEngineLocator.Locate(dummySettings);
+    Ensure(engines is not null, "Locator should return non-null record.");
 }
 
 static void Ensure(bool condition, string message)

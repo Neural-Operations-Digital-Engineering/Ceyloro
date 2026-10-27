@@ -106,19 +106,6 @@ jobs:
         run: ./scripts/fetch-ffmpeg-windows.ps1 -Destination ffmpeg-package -Architecture ${{ matrix.architecture }}
       - name: Publish self-contained Windows app
         run: dotnet publish Windows/Ceyloro.Windows/Ceyloro.Windows.csproj --configuration Release --runtime win-${{ matrix.architecture }} --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --output publish
-      - name: Package Windows app
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path package/Ceyloro | Out-Null
-          Copy-Item publish/* package/Ceyloro/ -Recurse -Force
-          Copy-Item ffmpeg-package/ffmpeg.exe package/Ceyloro/ffmpeg.exe -Force
-          Copy-Item ffmpeg-package/ffprobe.exe package/Ceyloro/ffprobe.exe -Force
-          Copy-Item ffmpeg-package/FFmpeg-LICENSE.txt package/Ceyloro/FFmpeg-LICENSE.txt -Force
-          if (Test-Path document-engines) {
-            Copy-Item document-engines package/Ceyloro/DocumentEngines -Recurse -Force
-          }
-          Copy-Item Windows/README.md package/Ceyloro/README.md -Force
-          Compress-Archive -Path package/Ceyloro -DestinationPath Ceyloro-Windows-${{ matrix.architecture }}.zip -Force
       # C5: Authenticode signing kondisional — hanya aktif jika secret tersedia.
       # Secret yang diperlukan: WINDOWS_SIGNING_CERT_PFX (base64), WINDOWS_SIGNING_CERT_PASSWORD
       # Lihat docs/BUILD-SECRETS.md untuk cara mendapatkannya.
@@ -131,19 +118,28 @@ jobs:
           signtool sign /f $certPath /p $env:WINDOWS_SIGNING_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 publish/Ceyloro.exe
           Remove-Item $certPath -Force
           Write-Host "Windows binary signed."
-      - name: Create Windows package checksum
+      - name: Stage package contents
         shell: pwsh
         run: |
-          $package = "Ceyloro-Windows-${{ matrix.architecture }}.zip"
-          $hash = (Get-FileHash -Algorithm SHA256 $package).Hash.ToLowerInvariant()
-          "$hash  $package" | Set-Content -Encoding ascii "$package.sha256"
+          New-Item -ItemType Directory -Force -Path package/Ceyloro | Out-Null
+          Copy-Item publish/* package/Ceyloro/ -Recurse -Force
+          Copy-Item ffmpeg-package/ffmpeg.exe package/Ceyloro/ffmpeg.exe -Force
+          Copy-Item ffmpeg-package/ffprobe.exe package/Ceyloro/ffprobe.exe -Force
+          Copy-Item ffmpeg-package/FFmpeg-LICENSE.txt package/Ceyloro/FFmpeg-LICENSE.txt -Force
+          if (Test-Path document-engines) {
+            Copy-Item document-engines package/Ceyloro/DocumentEngines -Recurse -Force
+          }
+          Copy-Item Windows/README.md package/Ceyloro/README.md -Force
+      - name: Package Windows app & installer
+        shell: pwsh
+        run: |
+          ./scripts/package-windows-installer.ps1 -Architecture ${{ matrix.architecture }}
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
           name: Ceyloro-Windows-${{ matrix.architecture }}
           path: |
-            Ceyloro-Windows-${{ matrix.architecture }}.zip
-            Ceyloro-Windows-${{ matrix.architecture }}.zip.sha256
+            dist/Ceyloro-Windows-${{ matrix.architecture }}*
 
   smoke-test:
     # C4: Smoke test paket release — unduh artifact macOS, verifikasi struktur dan konversi dasar.
@@ -202,7 +198,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release_args=("$GITHUB_REF_NAME" "dist/Ceyloro-macOS-universal.zip" "dist/Ceyloro-macOS-universal.zip.sha256" "dist/Ceyloro-Windows-x64.zip" "dist/Ceyloro-Windows-x64.zip.sha256" "dist/Ceyloro-Windows-arm64.zip" "dist/Ceyloro-Windows-arm64.zip.sha256" "dist/release-manifest.json" "--repo" "$GITHUB_REPOSITORY" "--title" "Ceyloro $GITHUB_REF_NAME" "--generate-notes" "--latest")
+          mapfile -t release_files < <(find dist/ -maxdepth 1 -type f)
+          release_args=("$GITHUB_REF_NAME" "${release_files[@]}" "--repo" "$GITHUB_REPOSITORY" "--title" "Ceyloro $GITHUB_REF_NAME" "--generate-notes" "--latest")
           case "$GITHUB_REF_NAME" in
             *-preview*|*-alpha*|*-beta*|*-rc*) release_args+=("--prerelease") ;;
           esac

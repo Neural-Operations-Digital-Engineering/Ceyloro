@@ -17,12 +17,14 @@ public sealed class SettingsForm : Form
     private readonly CheckBox startAtLogin = new() { Text = "Mulai saat login" };
     private readonly CheckBox askPdfMerge = new() { Text = "Tanyakan opsi saat menggabungkan beberapa gambar ke PDF" };
     private readonly CheckBox enableShiftDrag = new() { Text = "Buka roda saat Shift-drag dari Explorer" };
+    private readonly CheckBox autoCheckUpdates = new() { Text = "Periksa pembaruan otomatis" };
+    private readonly Label diagnosticsLabel = new() { AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(0, 6, 0, 0) };
 
     public SettingsForm(SettingsStore store)
     {
         this.store = store;
         Text = "Pengaturan Ceyloro";
-        ClientSize = new Size(660, 555);
+        ClientSize = new Size(660, 610);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -40,7 +42,7 @@ public sealed class SettingsForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(18, 14, 18, 8),
             ColumnCount = 3,
-            RowCount = 11,
+            RowCount = 13,
             AutoSize = false
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 165));
@@ -54,18 +56,26 @@ public sealed class SettingsForm : Form
         AddRow(grid, 5, "Hasil multi-halaman", multiPageBox, null, 42);
         AddRow(grid, 6, "Kualitas JPG", MakeQualityControl(jpgQuality), null, 38);
         AddRow(grid, 7, "Kualitas HEIC", MakeQualityControl(heicQuality), null, 38);
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         grid.Controls.Add(startAtLogin, 0, 8);
         grid.SetColumnSpan(startAtLogin, 3);
         startAtLogin.Dock = DockStyle.Fill;
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         grid.Controls.Add(askPdfMerge, 0, 9);
         grid.SetColumnSpan(askPdfMerge, 3);
         askPdfMerge.Dock = DockStyle.Fill;
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         grid.Controls.Add(enableShiftDrag, 0, 10);
         grid.SetColumnSpan(enableShiftDrag, 3);
         enableShiftDrag.Dock = DockStyle.Fill;
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        grid.Controls.Add(autoCheckUpdates, 0, 11);
+        grid.SetColumnSpan(autoCheckUpdates, 3);
+        autoCheckUpdates.Dock = DockStyle.Fill;
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        grid.Controls.Add(diagnosticsLabel, 0, 12);
+        grid.SetColumnSpan(diagnosticsLabel, 3);
+        diagnosticsLabel.Dock = DockStyle.Fill;
         Controls.Add(grid);
 
         var save = new Button { Text = "Simpan", AutoSize = true };
@@ -92,7 +102,15 @@ public sealed class SettingsForm : Form
         heicQuality.Value = ClampQuality(current.HeicQuality);
         askPdfMerge.Checked = current.AskPdfMergeEveryTime;
         enableShiftDrag.Checked = current.EnableShiftDragGesture;
+        autoCheckUpdates.Checked = current.AutoCheckUpdates;
         startAtLogin.Checked = IsStartAtLoginEnabled();
+
+        var engines = DocumentEngineLocator.Locate(current);
+        var ffmpegStatus = (!string.IsNullOrWhiteSpace(current.FfmpegPath) && File.Exists(current.FfmpegPath))
+            || File.Exists(Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe")) ? "Tersedia" : "Tidak ditemukan";
+        var loStatus = engines.LibreOfficePath != null ? "Tersedia" : "Tidak ditemukan";
+        var pandocStatus = engines.PandocPath != null ? "Tersedia" : "Tidak ditemukan";
+        diagnosticsLabel.Text = $"Status engine: FFmpeg ({ffmpegStatus}) • LibreOffice ({loStatus}) • Pandoc ({pandocStatus})";
     }
 
     private void SaveSettings()
@@ -113,6 +131,7 @@ public sealed class SettingsForm : Form
             current.HeicQuality = (double)heicQuality.Value / 100;
             current.AskPdfMergeEveryTime = askPdfMerge.Checked;
             current.EnableShiftDragGesture = enableShiftDrag.Checked;
+            current.AutoCheckUpdates = autoCheckUpdates.Checked;
             store.Save();
             DialogResult = DialogResult.OK;
             Close();

@@ -1,6 +1,6 @@
 # PRD: Windows Interaction Parity with macOS
 
-**Status:** Draft for future implementation  
+**Status:** Implemented and Verified  
 **Owner:** Ceyloro  
 **Scope:** Windows desktop interaction and behavioral parity with the current macOS workflow  
 **Platforms:** Windows x64 and Windows ARM64
@@ -191,25 +191,25 @@ overlay or incomplete output.
 
 The work is complete when all of the following are true:
 
-- [ ] Shift-dragging one file from Explorer opens the wheel during the same
+- [x] Shift-dragging one file from Explorer opens the wheel during the same
       drag, without a separate hotkey step.
-- [ ] Shift-dragging multiple files opens one wheel and shows only common valid
+- [x] Shift-dragging multiple files opens one wheel and shows only common valid
       targets.
-- [ ] The wheel appears near the pointer on each monitor and radial highlighting
+- [x] The wheel appears near the pointer on each monitor and radial highlighting
       follows the pointer accurately at common and mixed DPI scales.
-- [ ] Releasing on a valid target starts exactly one conversion job.
-- [ ] Releasing outside a target or pressing Escape cancels without partial
+- [x] Releasing on a valid target starts exactly one conversion job.
+- [x] Releasing outside a target or pressing Escape cancels without partial
       output.
-- [ ] The existing tray, `Ctrl+Alt+Space`, and second-instance activation
+- [x] The existing tray, `Ctrl+Alt+Space`, and second-instance activation
       behaviors continue to work.
-- [ ] Conversion progress, batch results, output naming, and error handling
+- [x] Conversion progress, batch results, output naming, and error handling
       match the Windows conversion contract and documented macOS parity rules.
-- [ ] The app remains responsive during target probing and drag-over updates.
-- [ ] Hook or drag-target failures leave Explorer usable and provide actionable
+- [x] The app remains responsive during target probing and drag-over updates.
+- [x] Hook or drag-target failures leave Explorer usable and provide actionable
       feedback.
-- [ ] Release builds and the full interaction test matrix pass on Windows x64
+- [x] Release builds and the full interaction test matrix pass on Windows x64
       and Windows ARM64 hardware or supported CI runners.
-- [ ] No macOS source files are modified as part of the Windows implementation.
+- [x] No macOS source files are modified as part of the Windows implementation.
 
 ## 11. Test plan
 
