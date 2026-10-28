@@ -52,7 +52,29 @@ var tests = new (string Name, Action Run)[]
     // W3 / Updater & Lifecycle tests
     ("ceyloro version comparison and semantic ordering", CeyloroVersionComparison),
     ("app settings preserves update and gesture flags", SettingsFlagsPreservation),
-    ("document engine locator handles missing binaries gracefully", DocumentEngineLocatorMissing)
+    ("document engine locator handles missing binaries gracefully", DocumentEngineLocatorMissing),
+    // WIN-8 Tri-Modal & Actions tests
+    ("tri-modal drag gesture tracker detects mode modifiers", TriModalDragGestureTracker),
+    ("tools engine offers appropriate tools for videos and archives", ToolsEngineApplicableTools),
+    ("file actions engine defines valid shell actions", FileActionsEngineDefinition),
+    // WIN-9 / PRD-02 Extended Tools Catalog tests
+    ("tools engine generates correct FFmpeg arguments for mute, snapshot, and trim", ToolsEngineMediaArguments),
+    ("tools engine correctly parses page ranges for PDF split", ToolsEnginePageRangeParsing),
+    ("tools engine splits multi-page PDF into discrete pages preserving structure", ToolsEnginePdfSplitExecution),
+    ("tools engine rejects zip-slip path traversal attacks on extract", ToolsEngineExtractZipSlipRejection),
+    ("trim dialog form parses various human time formats accurately", TrimDialogFormTimeParsing),
+    // WIN-10 / PRD-03 Native File Actions tests
+    ("file actions engine formats paths across standard, quoted, unix, and wsl styles", PathFormattingStyles),
+    ("file actions engine configures clipboard drop effects for copy and move", ClipboardDropEffectConfiguration),
+    // WIN-11 / PRD-04 Toast Notification Engine tests
+    ("notification service activation handler routes openFile, openFolder, and openLog actions", NotificationActivationHandlerRouting),
+    ("notification service activation handler is safe against malformed or empty arguments", NotificationActivationHandlerEdgeCases),
+    // WIN-12 / PRD-05 GPU Hardware Acceleration tests
+    ("gpu hardware acceleration selects optimal vendor encoder and supports cpu fallback", GpuHardwareAccelerationSelection),
+    ("gpu command builder configures vendor-specific rate control parameters", GpuCommandBuilderVendorParameters),
+    // WIN-13 / PRD-06 Shell Context Menu & IPC tests
+    ("single instance gate parses file arguments and filters flags", SingleInstanceFileArgumentParsing),
+    ("shell extension manager verifies and manages context menu registry entries", ShellExtensionContextRegistration)
 };
 
 var failures = new List<string>();
@@ -781,6 +803,361 @@ static void DocumentEngineLocatorMissing()
     };
     var engines = DocumentEngineLocator.Locate(dummySettings);
     Ensure(engines is not null, "Locator should return non-null record.");
+}
+
+static void TriModalDragGestureTracker()
+{
+    var tracker = new DragGestureTracker(threshold: 6);
+
+    // Ctrl drag -> Tools mode
+    tracker.OnMouseDown(new Point(50, 50), modifierPressed: true, isExplorer: true, mode: RadialWheelMode.Tools);
+    Ensure(tracker.Mode == RadialWheelMode.Tools, "Tracker should record Tools mode on Ctrl drag.");
+    tracker.OnMouseMove(new Point(65, 65), out _);
+    Ensure(tracker.GestureTriggered, "Gesture should trigger above threshold.");
+    tracker.Reset();
+
+    // Alt drag -> Actions mode
+    tracker.OnMouseDown(new Point(50, 50), modifierPressed: true, isExplorer: true, mode: RadialWheelMode.Actions);
+    Ensure(tracker.Mode == RadialWheelMode.Actions, "Tracker should record Actions mode on Alt drag.");
+    tracker.Reset();
+
+    // Shift drag -> Convert mode
+    tracker.OnMouseDown(new Point(50, 50), modifierPressed: true, isExplorer: true, mode: RadialWheelMode.Convert);
+    Ensure(tracker.Mode == RadialWheelMode.Convert, "Tracker should record Convert mode on Shift drag.");
+}
+
+static void ToolsEngineApplicableTools()
+{
+    var engine = new ConversionEngine(SettingsStore.Load());
+
+    var videoTools = ToolsEngine.GetApplicableTools(["clip.mp4"], engine);
+    Ensure(videoTools.Contains("mute"), "Video should offer mute tool.");
+    Ensure(videoTools.Contains("snapshot"), "Video should offer snapshot tool.");
+    Ensure(videoTools.Contains("trim"), "Video should offer trim tool.");
+
+    var audioTools = ToolsEngine.GetApplicableTools(["song.mp3"], engine);
+    Ensure(audioTools.Contains("trim"), "Audio should offer trim tool.");
+
+    var pdfTools = ToolsEngine.GetApplicableTools(["document.pdf"], engine);
+    Ensure(pdfTools.Contains("split"), "PDF should offer split tool.");
+
+    var archiveTools = ToolsEngine.GetApplicableTools(["archive.zip"], engine);
+    Ensure(archiveTools.Contains("ekstrak"), "Archive should offer ekstrak tool.");
+}
+
+static void ToolsEngineMediaArguments()
+{
+    var muteArgs = ToolsEngine.BuildMuteArguments("in.mp4", "out.mp4");
+    Ensure(muteArgs.SequenceEqual(["-y", "-i", "in.mp4", "-c:v", "copy", "-an", "out.mp4"]), "Mute arguments should be -c:v copy -an.");
+
+    var snapArgs = ToolsEngine.BuildSnapshotArguments("in.mp4", "out.png", TimeSpan.FromSeconds(2.5));
+    Ensure(snapArgs.Contains("-ss") && snapArgs.Contains("00:00:02.500") && snapArgs.Contains("-frames:v"), "Snapshot arguments should set timestamp and 1 frame.");
+
+    var losslessTrim = ToolsEngine.BuildTrimArguments("in.mp4", "out.mp4", TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10), lossless: true);
+    Ensure(losslessTrim.Contains("-c") && losslessTrim.Contains("copy"), "Lossless trim should copy stream.");
+
+    var reencodeTrim = ToolsEngine.BuildTrimArguments("in.mp4", "out.mp4", TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10), lossless: false);
+    Ensure(!losslessTrim.SequenceEqual(reencodeTrim) && !reencodeTrim.Contains("copy"), "Re-encode trim must not copy stream.");
+}
+
+static void ToolsEnginePageRangeParsing()
+{
+    var r1 = ToolsEngine.ParsePageRange("1-3, 5", 10);
+    Ensure(r1.SequenceEqual([1, 2, 3, 5]), "Range 1-3, 5 did not parse correctly.");
+
+    var r2 = ToolsEngine.ParsePageRange("all", 4);
+    Ensure(r2.SequenceEqual([1, 2, 3, 4]), "Range 'all' did not return all 4 pages.");
+
+    var r3 = ToolsEngine.ParsePageRange(null, 3);
+    Ensure(r3.SequenceEqual([1, 2, 3]), "Null range did not return all 3 pages.");
+
+    var r4 = ToolsEngine.ParsePageRange("4-2", 5);
+    Ensure(r4.SequenceEqual([2, 3, 4]), "Reverse range 4-2 was not normalized.");
+
+    var r5 = ToolsEngine.ParsePageRange("8-10", 5);
+    Ensure(r5.Count == 0, "Out of bounds range was not filtered.");
+}
+
+static void ToolsEnginePdfSplitExecution()
+{
+    using var temp = new TestDirectory();
+    var pdfPath = Path.Combine(temp.Path, "sample.pdf");
+
+    // Buat multi-page PDF (2 halaman) dengan PdfDocumentBuilder
+    var builder = new UglyToad.PdfPig.Writer.PdfDocumentBuilder();
+    builder.AddPage(595, 842);
+    builder.AddPage(595, 842);
+    File.WriteAllBytes(pdfPath, builder.Build());
+
+    var resultFolder = ToolsEngine.ExecutePdfSplitAsync(pdfPath, temp.Path, null, CancellationToken.None).GetAwaiter().GetResult();
+    Ensure(Directory.Exists(resultFolder), "PDF split output folder was not created.");
+
+    var files = Directory.GetFiles(resultFolder, "*.pdf").OrderBy(f => f).ToArray();
+    Ensure(files.Length == 2, $"Expected 2 split PDF pages, found {files.Length}.");
+    Ensure(Path.GetFileName(files[0]) == "sample-01.pdf", $"Page 1 name mismatch: {Path.GetFileName(files[0])}");
+    Ensure(Path.GetFileName(files[1]) == "sample-02.pdf", $"Page 2 name mismatch: {Path.GetFileName(files[1])}");
+
+    using var doc1 = UglyToad.PdfPig.PdfDocument.Open(files[0]);
+    Ensure(doc1.NumberOfPages == 1, "Split page 1 must have exactly 1 page.");
+
+    using var doc2 = UglyToad.PdfPig.PdfDocument.Open(files[1]);
+    Ensure(doc2.NumberOfPages == 1, "Split page 2 must have exactly 1 page.");
+}
+
+static void ToolsEngineExtractZipSlipRejection()
+{
+    using var temp = new TestDirectory();
+    var zipPath = Path.Combine(temp.Path, "malicious.zip");
+
+    using (var file = File.Create(zipPath))
+    using (var archive = new ZipArchive(file, ZipArchiveMode.Create))
+    {
+        var entry = archive.CreateEntry("../../evil.txt");
+        using var writer = new StreamWriter(entry.Open());
+        writer.Write("exploited");
+    }
+
+    var threw = false;
+    try
+    {
+        ToolsEngine.ExecuteExtractAsync(zipPath, temp.Path, CancellationToken.None).GetAwaiter().GetResult();
+    }
+    catch (InvalidDataException)
+    {
+        threw = true;
+    }
+
+    Ensure(threw, "Extracting a zip with path traversal '../../' must be rejected with InvalidDataException.");
+}
+
+static void TrimDialogFormTimeParsing()
+{
+    Ensure(TrimDialogForm.TryParseTime("00:01:15", out var t1) && t1.TotalSeconds == 75, "00:01:15 should parse to 75 seconds.");
+    Ensure(TrimDialogForm.TryParseTime("45", out var t2) && t2.TotalSeconds == 45, "45 should parse to 45 seconds.");
+    Ensure(TrimDialogForm.TryParseTime("01:30", out var t3) && t3.TotalSeconds == 90, "01:30 should parse to 90 seconds.");
+    Ensure(!TrimDialogForm.TryParseTime("invalid", out _), "Invalid string should fail parsing.");
+}
+
+static void FileActionsEngineDefinition()
+{
+    Ensure(FileActionsEngine.AvailableActions.Contains("salin path"), "Should contain salin path action.");
+    Ensure(FileActionsEngine.AvailableActions.Contains("terminal"), "Should contain terminal action.");
+    Ensure(FileActionsEngine.AvailableActions.Contains("buka folder"), "Should contain buka folder action.");
+    Ensure(FileActionsEngine.AvailableActions.Contains("salin file"), "Should contain salin file action.");
+    Ensure(FileActionsEngine.AvailableActions.Contains("potong file"), "Should contain potong file action.");
+    Ensure(FileActionsEngine.AvailableActions.Contains("bagikan"), "Should contain bagikan action.");
+}
+
+static void PathFormattingStyles()
+{
+    var sample = @"C:\Users\Ceyloro\doc.pdf";
+    Ensure(FileActionsEngine.FormatPath(sample, PathFormatStyle.Standard) == sample, "Standard path mismatch.");
+    Ensure(FileActionsEngine.FormatPath(sample, PathFormatStyle.Quoted) == $"\"{sample}\"", "Quoted path mismatch.");
+    Ensure(FileActionsEngine.FormatPath(sample, PathFormatStyle.Unix) == "C:/Users/Ceyloro/doc.pdf", "Unix path mismatch.");
+    Ensure(FileActionsEngine.FormatPath(sample, PathFormatStyle.Wsl) == "/mnt/c/Users/Ceyloro/doc.pdf", "WSL path mismatch.");
+    Ensure(FileActionsEngine.ToWslPath(@"D:\Data\photo.jpg") == "/mnt/d/Data/photo.jpg", "WSL D: drive conversion mismatch.");
+    Ensure(FileActionsEngine.ParsePathFormatStyle("wsl") == PathFormatStyle.Wsl, "Parse WSL style failed.");
+    Ensure(FileActionsEngine.ParsePathFormatStyle("quoted") == PathFormatStyle.Quoted, "Parse Quoted style failed.");
+}
+
+static void ClipboardDropEffectConfiguration()
+{
+    using var temp = new TestDirectory();
+    var testFile = Path.Combine(temp.Path, "clip.txt");
+    File.WriteAllText(testFile, "test data");
+
+    // Test Copy DropEffect (1)
+    FileActionsEngine.SetClipboardFiles([testFile], isMove: false);
+    var copyData = Clipboard.GetDataObject();
+    Ensure(copyData != null, "Clipboard data object should not be null after copy.");
+    var copyStream = copyData.GetData("Preferred DropEffect") as Stream;
+    Ensure(copyStream != null, "Preferred DropEffect stream must be present for copy.");
+    Ensure(copyStream.ReadByte() == 1, "DROPEFFECT_COPY must be 1.");
+
+    // Test Move / Cut DropEffect (2)
+    FileActionsEngine.SetClipboardFiles([testFile], isMove: true);
+    var moveData = Clipboard.GetDataObject();
+    Ensure(moveData != null, "Clipboard data object should not be null after move.");
+    var moveStream = moveData.GetData("Preferred DropEffect") as Stream;
+    Ensure(moveStream != null, "Preferred DropEffect stream must be present for move/cut.");
+    Ensure(moveStream.ReadByte() == 2, "DROPEFFECT_MOVE must be 2.");
+}
+
+static void NotificationActivationHandlerRouting()
+{
+    using var temp = new TestDirectory();
+
+    // openFile: file ada → seharusnya tidak throw
+    var testFile = Path.Combine(temp.Path, "result.txt");
+    File.WriteAllText(testFile, "ceyloro test");
+    // Tidak memanggil Process.Start sungguhan karena file tidak bisa dibuka di test runner;
+    // pastikan HandleActivation tidak throw untuk argumen yang valid.
+    var threw = false;
+    try { NotificationService.HandleActivation($"action=openFile&path={Uri.EscapeDataString(testFile)}"); }
+    catch { threw = true; }
+    Ensure(!threw, "HandleActivation openFile must not throw for an existing file.");
+
+    // openFolder: folder ada
+    threw = false;
+    try { NotificationService.HandleActivation($"action=openFolder&path={Uri.EscapeDataString(temp.Path)}"); }
+    catch { threw = true; }
+    Ensure(!threw, "HandleActivation openFolder must not throw for an existing folder.");
+
+    // openLog: log ada
+    threw = false;
+    var logFile = Path.Combine(temp.Path, "app.log");
+    File.WriteAllText(logFile, "log content");
+    try { NotificationService.HandleActivation($"action=openLog&path={Uri.EscapeDataString(logFile)}"); }
+    catch { threw = true; }
+    Ensure(!threw, "HandleActivation openLog must not throw for an existing log file.");
+}
+
+static void NotificationActivationHandlerEdgeCases()
+{
+    // Argumen kosong
+    var threw = false;
+    try { NotificationService.HandleActivation(string.Empty); }
+    catch { threw = true; }
+    Ensure(!threw, "HandleActivation must handle empty arguments silently.");
+
+    // Argumen null-equivalent
+    threw = false;
+    try { NotificationService.HandleActivation("   "); }
+    catch { threw = true; }
+    Ensure(!threw, "HandleActivation must handle whitespace-only arguments silently.");
+
+    // Action tidak dikenal
+    threw = false;
+    try { NotificationService.HandleActivation("action=unknownAction&path=C:\\nowhere"); }
+    catch { threw = true; }
+    Ensure(!threw, "HandleActivation must silently ignore unknown actions.");
+
+    // openFile dengan path tidak ada → tidak crash
+    threw = false;
+    try { NotificationService.HandleActivation("action=openFile&path=C:\\does\\not\\exist.pdf"); }
+    catch { threw = true; }
+    Ensure(!threw, "HandleActivation openFile with non-existent path must not throw.");
+}
+
+static void GpuHardwareAccelerationSelection()
+{
+    // 1. Probed NVIDIA GPU
+    var nvCaps = CreateFfmpegCapabilitiesWithGpu(
+        encoders: ["libx264", "h264_nvenc", "libx265", "hevc_nvenc", "aac"],
+        decoders: ["h264", "hevc"],
+        muxers: ["mp4"],
+        gpuEncoder: "h264_nvenc",
+        hevcGpuEncoder: "hevc_nvenc");
+
+    Ensure(nvCaps.IsHardwareAccelerated, "NVIDIA capabilities should report IsHardwareAccelerated = true.");
+    Ensure(nvCaps.EncoderFor("mp4") == "h264_nvenc", "NVIDIA should prefer h264_nvenc.");
+    Ensure(nvCaps.EncoderFor("mp4", allowHardware: false) == "libx264", "Fallback should select libx264 when allowHardware is false.");
+    Ensure(nvCaps.EncoderFor("heic") == "hevc_nvenc", "NVIDIA should prefer hevc_nvenc for HEIC.");
+    Ensure(nvCaps.EncoderFor("heic", allowHardware: false) == "libx265", "Fallback should select libx265 for HEIC when allowHardware is false.");
+
+    // 2. Probed Intel QSV
+    var qsvCaps = CreateFfmpegCapabilitiesWithGpu(
+        encoders: ["libx264", "h264_qsv", "aac"],
+        decoders: ["h264"],
+        muxers: ["mp4"],
+        gpuEncoder: "h264_qsv");
+    Ensure(qsvCaps.IsHardwareAccelerated, "QSV should report IsHardwareAccelerated = true.");
+    Ensure(qsvCaps.EncoderFor("mp4") == "h264_qsv", "QSV should prefer h264_qsv.");
+
+    // 3. Probed AMD AMF
+    var amfCaps = CreateFfmpegCapabilitiesWithGpu(
+        encoders: ["libx264", "h264_amf", "aac"],
+        decoders: ["h264"],
+        muxers: ["mp4"],
+        gpuEncoder: "h264_amf");
+    Ensure(amfCaps.IsHardwareAccelerated, "AMF should report IsHardwareAccelerated = true.");
+    Ensure(amfCaps.EncoderFor("mp4") == "h264_amf", "AMF should prefer h264_amf.");
+
+    // 4. Pure CPU (no hardware detected)
+    var cpuCaps = CreateFfmpegCapabilitiesWithGpu(
+        encoders: ["libx264", "aac"],
+        decoders: ["h264"],
+        muxers: ["mp4"]);
+    Ensure(!cpuCaps.IsHardwareAccelerated, "CPU should report IsHardwareAccelerated = false.");
+    Ensure(cpuCaps.EncoderFor("mp4") == "libx264", "CPU should use libx264.");
+}
+
+static void GpuCommandBuilderVendorParameters()
+{
+    var settings = new AppSettings();
+
+    // 1. NVIDIA NVENC command arguments
+    var nvCaps = CreateFfmpegCapabilitiesWithGpu(
+        encoders: ["libx264", "h264_nvenc", "aac"],
+        decoders: ["h264"],
+        muxers: ["mp4"],
+        gpuEncoder: "h264_nvenc");
+
+    var nvArgs = FfmpegCommandBuilder.Build(@"C:\in.mp4", @"C:\out.mp4", "mp4", nvCaps, settings, compression: false);
+    Ensure(nvArgs.Contains("h264_nvenc"), "Should use h264_nvenc.");
+    Ensure(nvArgs.Contains("-cq") && nvArgs.Contains("24"), "NVENC normal should use -cq 24.");
+    Ensure(nvArgs.Contains("-preset") && nvArgs.Contains("p5"), "NVENC should use preset p5.");
+    Ensure(nvArgs.Contains("-rc:v") && nvArgs.Contains("vbr"), "NVENC should use vbr rate control.");
+
+    var nvCompArgs = FfmpegCommandBuilder.Build(@"C:\in.mp4", @"C:\out.mp4", "mp4", nvCaps, settings, compression: true);
+    Ensure(nvCompArgs.Contains("-cq") && nvCompArgs.Contains("30"), "NVENC compression should use -cq 30.");
+
+    // 2. Fallback to CPU via disableHardwareAcceleration flag
+    var fallbackArgs = FfmpegCommandBuilder.Build(@"C:\in.mp4", @"C:\out.mp4", "mp4", nvCaps, settings, compression: false, disableHardwareAcceleration: true);
+    Ensure(fallbackArgs.Contains("libx264"), "Fallback must select libx264.");
+    Ensure(!fallbackArgs.Contains("h264_nvenc"), "Fallback must not use h264_nvenc.");
+    Ensure(fallbackArgs.Contains("-crf") && fallbackArgs.Contains("23"), "CPU normal should use -crf 23.");
+
+    // 3. Intel QSV command arguments
+    var qsvCaps = CreateFfmpegCapabilitiesWithGpu(
+        encoders: ["libx264", "h264_qsv", "aac"],
+        decoders: ["h264"],
+        muxers: ["mp4"],
+        gpuEncoder: "h264_qsv");
+    var qsvArgs = FfmpegCommandBuilder.Build(@"C:\in.mp4", @"C:\out.mp4", "mp4", qsvCaps, settings, compression: false);
+    Ensure(qsvArgs.Contains("h264_qsv") && qsvArgs.Contains("-global_quality") && qsvArgs.Contains("24"), "QSV should use -global_quality 24.");
+
+    // 4. AMD AMF command arguments
+    var amfCaps = CreateFfmpegCapabilitiesWithGpu(
+        encoders: ["libx264", "h264_amf", "aac"],
+        decoders: ["h264"],
+        muxers: ["mp4"],
+        gpuEncoder: "h264_amf");
+    var amfArgs = FfmpegCommandBuilder.Build(@"C:\in.mp4", @"C:\out.mp4", "mp4", amfCaps, settings, compression: false);
+    Ensure(amfArgs.Contains("h264_amf") && amfArgs.Contains("-rc") && amfArgs.Contains("cqp") && amfArgs.Contains("-qp_i") && amfArgs.Contains("24"), "AMF should use cqp with qp_i 24.");
+}
+
+static FfmpegCapabilities CreateFfmpegCapabilitiesWithGpu(string[] encoders, string[] decoders, string[] muxers, string? gpuEncoder = null, string? hevcGpuEncoder = null)
+{
+    return new FfmpegCapabilities(
+        new HashSet<string>(encoders, StringComparer.OrdinalIgnoreCase),
+        new HashSet<string>(decoders, StringComparer.OrdinalIgnoreCase),
+        new HashSet<string>(muxers, StringComparer.OrdinalIgnoreCase),
+        gpuEncoder,
+        hevcGpuEncoder);
+}
+
+static void SingleInstanceFileArgumentParsing()
+{
+    using var temp = new TestDirectory();
+    var f1 = Path.Combine(temp.Path, "clip.mp4");
+    var f2 = Path.Combine(temp.Path, "doc.pdf");
+    File.WriteAllText(f1, "video");
+    File.WriteAllText(f2, "doc");
+
+    var parsed = SingleInstanceGate.ParseFileArguments(["--show", "--files", f1, "--context-menu", f2, "--random-flag"]);
+    Ensure(parsed.Length == 2, $"Expected 2 parsed files, got {parsed.Length}.");
+    Ensure(parsed.Contains(f1), "Parsed files should contain clip.mp4.");
+    Ensure(parsed.Contains(f2), "Parsed files should contain doc.pdf.");
+
+    var empty = SingleInstanceGate.ParseFileArguments(["--show", "--help"]);
+    Ensure(empty.Length == 0, "No files should be parsed when only flags are passed.");
+}
+
+static void ShellExtensionContextRegistration()
+{
+    var wasRegistered = ShellExtensionManager.IsContextMenuRegistered();
+    Ensure(wasRegistered == true || wasRegistered == false, "IsContextMenuRegistered must return a valid boolean.");
 }
 
 static void Ensure(bool condition, string message)

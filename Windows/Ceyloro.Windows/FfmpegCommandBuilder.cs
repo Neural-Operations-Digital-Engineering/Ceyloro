@@ -18,35 +18,40 @@ internal static class FfmpegCommandBuilder
         string target,
         FfmpegCapabilities capabilities,
         AppSettings settings,
-        bool compression = false)
+        bool compression = false,
+        bool disableHardwareAcceleration = false)
     {
         var arguments = new List<string>(BuildInputArguments(input));
         if (target is "jpg" or "png" or "heic" or "tiff" or "webp" or "avif")
         {
-            arguments.AddRange(["-frames:v", "1", "-an", "-c:v", RequiredEncoder(capabilities, target)]);
+            var encoder = RequiredEncoder(capabilities, target, !disableHardwareAcceleration);
+            arguments.AddRange(["-frames:v", "1", "-an", "-c:v", encoder]);
             if (target == "jpg")
             {
                 var quality = Math.Clamp(settings.JpgQuality, 0.1, 1.0);
                 var qualityValue = compression ? Math.Max(10, quality * 0.78) : quality;
                 arguments.AddRange(["-q:v", Math.Clamp((int)Math.Round(31 - qualityValue * 29), 2, 31).ToString(CultureInfo.InvariantCulture)]);
-        }
+            }
             else if (target == "heic")
             {
                 var crf = Math.Clamp((int)Math.Round(51 * (1 - settings.HeicQuality)), 0, 51);
                 if (compression) crf = Math.Max(crf, 28);
-                arguments.AddRange(["-crf", crf.ToString(CultureInfo.InvariantCulture), "-tag:v", "hvc1"]);
+                if (encoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase))
+                    arguments.AddRange(["-cq", crf.ToString(CultureInfo.InvariantCulture), "-tag:v", "hvc1"]);
+                else
+                    arguments.AddRange(["-crf", crf.ToString(CultureInfo.InvariantCulture), "-tag:v", "hvc1"]);
             }
         }
         else if (target is "mp3" or "m4a" or "wav" or "flac" or "ogg" or "opus" or "aiff")
         {
-            arguments.AddRange(["-vn", "-c:a", RequiredEncoder(capabilities, target)]);
+            arguments.AddRange(["-vn", "-c:a", RequiredEncoder(capabilities, target, allowHardware: false)]);
             if (target is "mp3" or "m4a") arguments.AddRange(["-b:a", compression ? "96k" : "192k"]);
             if (target == "ogg") arguments.AddRange(["-ac", "2", "-q:a", compression ? "3" : "5"]);
             if (target == "opus") arguments.AddRange(["-b:a", compression ? "64k" : "128k"]);
         }
         else
         {
-            var encoder = RequiredEncoder(capabilities, target);
+            var encoder = RequiredEncoder(capabilities, target, !disableHardwareAcceleration);
             arguments.AddRange(["-c:v", encoder]);
             if (target == "webm") arguments.AddRange(["-crf", compression ? "42" : "32", "-b:v", "0"]);
             else if (target is "mp4" or "mov" or "mkv" or "avi")
@@ -57,15 +62,15 @@ internal static class FfmpegCommandBuilder
                 }
                 else if (encoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase))
                 {
-                    arguments.AddRange(["-cq", compression ? "32" : "26"]);
+                    arguments.AddRange(["-cq", compression ? "30" : "24", "-preset", "p5", "-rc:v", "vbr"]);
                 }
                 else if (encoder.Contains("qsv", StringComparison.OrdinalIgnoreCase))
                 {
-                    arguments.AddRange(["-global_quality", compression ? "28" : "23"]);
+                    arguments.AddRange(["-global_quality", compression ? "28" : "24", "-preset", "medium"]);
                 }
                 else if (encoder.Contains("amf", StringComparison.OrdinalIgnoreCase))
                 {
-                    arguments.AddRange(["-rc", "cqp", "-qp_p", compression ? "28" : "23", "-qp_i", compression ? "28" : "23"]);
+                    arguments.AddRange(["-rc", "cqp", "-qp_i", compression ? "28" : "24", "-qp_p", compression ? "28" : "24", "-quality", "balanced"]);
                 }
                 else
                 {
@@ -95,7 +100,6 @@ internal static class FfmpegCommandBuilder
         return arguments;
     }
 
-    private static string RequiredEncoder(FfmpegCapabilities capabilities, string target) =>
-        capabilities.EncoderFor(target) ?? throw new InvalidOperationException($"Encoder FFmpeg untuk {target.ToUpperInvariant()} tidak tersedia.");
+    private static string RequiredEncoder(FfmpegCapabilities capabilities, string target, bool allowHardware = true) =>
+        capabilities.EncoderFor(target, allowHardware) ?? throw new InvalidOperationException($"Encoder FFmpeg untuk {target.ToUpperInvariant()} tidak tersedia.");
 }
-

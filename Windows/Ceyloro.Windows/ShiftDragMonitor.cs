@@ -11,6 +11,8 @@ internal sealed class ShiftDragMonitor : IDisposable
     private const int WmLButtonUp = 0x0202;
     private const int WmMouseMove = 0x0200;
     private const int VkShift = 0x10;
+    private const int VkControl = 0x11;
+    private const int VkMenu = 0x12;
     private const int SmCxDrag = 68;
     private const int SmCyDrag = 69;
     private const uint GaRoot = 2;
@@ -21,7 +23,7 @@ internal sealed class ShiftDragMonitor : IDisposable
     private IntPtr hookHandle = IntPtr.Zero;
     private bool disposed;
 
-    public event Action<Point>? GestureTriggered;
+    public event Action<Point, RadialWheelMode>? GestureTriggered;
     public event Action? DragCompleted;
 
     public ShiftDragMonitor(SynchronizationContext? syncContext = null)
@@ -90,14 +92,19 @@ internal sealed class ShiftDragMonitor : IDisposable
             {
                 case WmLButtonDown:
                     var shiftDown = (GetAsyncKeyState(VkShift) & 0x8000) != 0;
-                    var isExplorer = shiftDown && IsExplorerWindowAt(hookStruct.pt);
-                    tracker.OnMouseDown(pt, shiftDown, isExplorer);
+                    var ctrlDown = (GetAsyncKeyState(VkControl) & 0x8000) != 0;
+                    var altDown = (GetAsyncKeyState(VkMenu) & 0x8000) != 0;
+                    var modifierDown = shiftDown || ctrlDown || altDown;
+                    var isExplorer = modifierDown && IsExplorerWindowAt(hookStruct.pt);
+                    var initialMode = ctrlDown ? RadialWheelMode.Tools : (altDown ? RadialWheelMode.Actions : RadialWheelMode.Convert);
+                    tracker.OnMouseDown(pt, modifierDown, isExplorer, initialMode);
                     break;
 
                 case WmMouseMove:
                     if (tracker.OnMouseMove(pt, out var triggerPoint))
                     {
-                        Dispatch(() => GestureTriggered?.Invoke(triggerPoint));
+                        var mode = tracker.Mode;
+                        Dispatch(() => GestureTriggered?.Invoke(triggerPoint, mode));
                     }
                     break;
 

@@ -14,14 +14,16 @@ internal sealed class DragGestureTracker
 
     public bool IsTracking => isTracking;
     public bool GestureTriggered => gestureTriggered;
+    public RadialWheelMode Mode { get; private set; } = RadialWheelMode.Convert;
 
-    public bool OnMouseDown(Point point, bool shiftPressed, bool isExplorer)
+    public bool OnMouseDown(Point point, bool modifierPressed, bool isExplorer, RadialWheelMode mode = RadialWheelMode.Convert)
     {
         gestureTriggered = false;
-        if (shiftPressed && isExplorer)
+        if (modifierPressed && isExplorer)
         {
             isTracking = true;
             startPoint = point;
+            Mode = mode;
             return true;
         }
 

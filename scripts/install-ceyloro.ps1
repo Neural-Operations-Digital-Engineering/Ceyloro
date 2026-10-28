@@ -56,6 +56,18 @@ if ($StartAtLogin) {
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Ceyloro" -Value "`"$exePath`""
 }
 
+# Daftarkan Menu Konteks Explorer
+$shellKeys = @("HKCU:\Software\Classes\*\shell\Ceyloro", "HKCU:\Software\Classes\Directory\shell\Ceyloro")
+foreach ($key in $shellKeys) {
+    New-Item -Path $key -Force | Out-Null
+    Set-ItemProperty -Path $key -Name "(default)" -Value "Buka dengan Roda Ceyloro"
+    Set-ItemProperty -Path $key -Name "Icon" -Value "`"$exePath`",0"
+    $cmdKey = Join-Path $key "command"
+    New-Item -Path $cmdKey -Force | Out-Null
+    Set-ItemProperty -Path $cmdKey -Name "(default)" -Value "`"$exePath`" --files `"%1`""
+}
+Write-Host "Menu Konteks File Explorer didaftarkan."
+
 # Tulis script uninstall bersih
 $uninstallScript = @"
 @echo off
@@ -66,6 +78,8 @@ timeout /t 1 /nobreak >nul
 
 del /q "$shortcutPath" 2>nul
 del /q "$desktopShortcutPath" 2>nul
+reg delete "HKCU\Software\Classes\*\shell\Ceyloro" /f >nul 2>&1
+reg delete "HKCU\Software\Classes\Directory\shell\Ceyloro" /f >nul 2>&1
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "Ceyloro" /f >nul 2>&1
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Ceyloro" /f >nul 2>&1
 

@@ -47,6 +47,13 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: startupicon; Flags: uninsdeletevalue
+; Context Menu Explorer (File & Folder)
+Root: HKCU; Subkey: "Software\Classes\*\shell\Ceyloro"; ValueType: string; ValueName: ""; ValueData: "Buka dengan Roda Ceyloro"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\*\shell\Ceyloro"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#MyAppExeName}"",0"
+Root: HKCU; Subkey: "Software\Classes\*\shell\Ceyloro\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" --files ""%1"""
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\Ceyloro"; ValueType: string; ValueName: ""; ValueData: "Buka dengan Roda Ceyloro"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\Ceyloro"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#MyAppExeName}"",0"
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\Ceyloro\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" --files ""%1"""
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

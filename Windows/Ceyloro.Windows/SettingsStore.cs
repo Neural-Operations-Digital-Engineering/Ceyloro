@@ -19,6 +19,7 @@ public sealed class AppSettings
     public bool AskPdfMergeEveryTime { get; set; } = true;
     public bool EnableShiftDragGesture { get; set; } = true;
     public bool AutoCheckUpdates { get; set; } = true;
+    public string PathFormatStyle { get; set; } = "standard";
 }
 
 public sealed class SettingsStore

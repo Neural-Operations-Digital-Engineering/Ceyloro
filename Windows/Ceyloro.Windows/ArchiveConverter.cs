@@ -79,7 +79,7 @@ internal static class ArchiveConverter
         }
     }
 
-    private static void Extract(string input, string extension, string destination, CancellationToken cancellationToken)
+    internal static void Extract(string input, string extension, string destination, CancellationToken cancellationToken)
     {
         if (extension == "zip")
         {
@@ -108,7 +108,7 @@ internal static class ArchiveConverter
                 }
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 using var source = entry.Open();
-                using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                using var output = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None);
                 zipExpanded += CopyWithLimit(source, output, cancellationToken, MaximumExpandedBytes - zipExpanded);
             }
             return;
@@ -144,7 +144,7 @@ internal static class ArchiveConverter
             if (tarEntry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile))
                 throw new InvalidDataException("Arsip berisi tipe file khusus yang tidak didukung.");
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            using var output = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None);
             tarExpanded += CopyWithLimit(tarEntry.DataStream ?? Stream.Null, output, cancellationToken, MaximumExpandedBytes - tarExpanded);
         }
     }

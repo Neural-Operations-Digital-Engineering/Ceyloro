@@ -309,6 +309,22 @@ public sealed class ConversionEngine
         var capabilities = TryGetCapabilities();
         if (capabilities is null || !capabilities.Supports(target))
             throw new InvalidOperationException($"FFmpeg pada perangkat ini tidak memiliki encoder atau muxer untuk {target.ToUpperInvariant()}.");
+
+        var useHardware = capabilities.IsHardwareAccelerated;
+        try
+        {
+            await RunFfmpegCoreAsync(ffmpeg, input, output, target, capabilities, cancellationToken, reportProgress, compression, disableHardwareAcceleration: false);
+        }
+        catch (Exception ex) when (useHardware && !cancellationToken.IsCancellationRequested)
+        {
+            AppLog.Write($"GPU encoder gagal ({ex.Message}); beralih otomatis ke CPU encoding tanpa membatalkan pekerjaan.");
+            TryDelete(output);
+            await RunFfmpegCoreAsync(ffmpeg, input, output, target, capabilities, cancellationToken, reportProgress, compression, disableHardwareAcceleration: true);
+        }
+    }
+
+    private async Task RunFfmpegCoreAsync(string ffmpeg, string input, string output, string target, FfmpegCapabilities capabilities, CancellationToken cancellationToken, Action<double> reportProgress, bool compression, bool disableHardwareAcceleration)
+    {
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
@@ -320,7 +336,7 @@ public sealed class ConversionEngine
                 CreateNoWindow = true
             }
         };
-        foreach (var argument in FfmpegCommandBuilder.Build(input, output, target, capabilities, settings.Current, compression))
+        foreach (var argument in FfmpegCommandBuilder.Build(input, output, target, capabilities, settings.Current, compression, disableHardwareAcceleration))
             process.StartInfo.ArgumentList.Add(argument);
         var duration = await ProbeDurationAsync(input, cancellationToken);
         if (!process.Start()) throw new InvalidOperationException("FFmpeg tidak dapat dijalankan.");
@@ -457,67 +473,19 @@ public sealed class ConversionEngine
         var extension = target.Equals("gzip", StringComparison.OrdinalIgnoreCase) ? "tar.gz" : target;
         var stagedOutput = Path.Combine(jobStaging, $"output.{extension}");
 
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = ffmpeg,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-        foreach (var argument in FfmpegCommandBuilder.Build(input, stagedOutput, target, capabilities, settings.Current))
-            process.StartInfo.ArgumentList.Add(argument);
-
-        var duration = await ProbeDurationAsync(input, cancellationToken);
-
-        if (!process.Start())
-            throw new InvalidOperationException("FFmpeg tidak dapat dijalankan.");
-
         try
         {
-            using var cancellationRegistration = cancellationToken.Register(() =>
+            var useHardware = capabilities.IsHardwareAccelerated;
+            try
             {
-                try
-                {
-                    if (!process.HasExited)
-                        process.Kill(entireProcessTree: true);
-                }
-                catch
-                {
-                    // The process may already have exited between HasExited and Kill.
-                }
-            });
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var errorTask = process.StandardError.ReadToEndAsync();
-            while (true)
-            {
-                var line = await process.StandardOutput.ReadLineAsync();
-                if (line is null)
-                    break;
-                if (line.Equals("progress=end", StringComparison.OrdinalIgnoreCase))
-                    reportProgress(1);
-                else if (line.StartsWith("out_time_ms=", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (duration is > 0 && long.TryParse(line[12..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var outputTime))
-                        reportProgress(Math.Clamp(outputTime / 1_000_000d / duration.Value, 0, 0.99));
-                    else
-                        reportProgress(-1);
-                }
+                await ExecuteFfmpegJobAsync(ffmpeg, input, stagedOutput, target, capabilities, cancellationToken, reportProgress, disableHardwareAcceleration: false);
             }
-
-            await process.WaitForExitAsync();
-            var errorOutput = await errorTask;
-            cancellationToken.ThrowIfCancellationRequested();
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(errorOutput)
-                    ? "FFmpeg gagal mengonversi file."
-                    : errorOutput.Trim());
-            if (!File.Exists(stagedOutput))
-                throw new InvalidOperationException("FFmpeg selesai tetapi file hasil tidak ditemukan.");
+            catch (Exception ex) when (useHardware && !cancellationToken.IsCancellationRequested)
+            {
+                AppLog.Write($"GPU encoder gagal ({ex.Message}); beralih otomatis ke CPU encoding tanpa membatalkan pekerjaan.");
+                TryDelete(stagedOutput);
+                await ExecuteFfmpegJobAsync(ffmpeg, input, stagedOutput, target, capabilities, cancellationToken, reportProgress, disableHardwareAcceleration: true);
+            }
 
             // Commit atomik ke output final — UniqueOutputPath dipanggil tepat sebelum File.Move
             // agar jeda antara cek keberadaan file dan penulisan diminimalkan.
@@ -531,6 +499,74 @@ public sealed class ConversionEngine
             try { if (Directory.Exists(jobStaging)) Directory.Delete(jobStaging, recursive: true); }
             catch { }
         }
+    }
+
+    private async Task ExecuteFfmpegJobAsync(
+        string ffmpeg,
+        string input,
+        string stagedOutput,
+        string target,
+        FfmpegCapabilities capabilities,
+        CancellationToken cancellationToken,
+        Action<double> reportProgress,
+        bool disableHardwareAcceleration)
+    {
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+        foreach (var argument in FfmpegCommandBuilder.Build(input, stagedOutput, target, capabilities, settings.Current, compression: false, disableHardwareAcceleration: disableHardwareAcceleration))
+            process.StartInfo.ArgumentList.Add(argument);
+
+        var duration = await ProbeDurationAsync(input, cancellationToken);
+        if (!process.Start())
+            throw new InvalidOperationException("FFmpeg tidak dapat dijalankan.");
+
+        using var cancellationRegistration = cancellationToken.Register(() =>
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
+        });
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var errorTask = process.StandardError.ReadToEndAsync();
+        while (true)
+        {
+            var line = await process.StandardOutput.ReadLineAsync();
+            if (line is null)
+                break;
+            if (line.Equals("progress=end", StringComparison.OrdinalIgnoreCase))
+                reportProgress(1);
+            else if (line.StartsWith("out_time_ms=", StringComparison.OrdinalIgnoreCase))
+            {
+                if (duration is > 0 && long.TryParse(line[12..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var outputTime))
+                    reportProgress(Math.Clamp(outputTime / 1_000_000d / duration.Value, 0, 0.99));
+                else
+                    reportProgress(-1);
+            }
+        }
+
+        await process.WaitForExitAsync();
+        var errorOutput = await errorTask;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(errorOutput)
+                ? "FFmpeg gagal mengonversi file."
+                : errorOutput.Trim());
+        if (!File.Exists(stagedOutput))
+            throw new InvalidOperationException("FFmpeg selesai tetapi file hasil tidak ditemukan.");
+    }
     }
 
     private async Task CreateImagePdfAsync(

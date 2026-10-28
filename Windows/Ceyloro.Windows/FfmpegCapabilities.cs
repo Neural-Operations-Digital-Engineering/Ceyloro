@@ -35,11 +35,27 @@ internal sealed class FfmpegCapabilities
     private readonly HashSet<string> availableDecoders;
     private readonly HashSet<string> availableMuxers;
 
-    private FfmpegCapabilities(HashSet<string> availableEncoders, HashSet<string> availableDecoders, HashSet<string> availableMuxers)
+    public string? PreferredVideoEncoder { get; }
+    public string? PreferredHevcEncoder { get; }
+    public bool IsHardwareAccelerated => !string.IsNullOrEmpty(PreferredVideoEncoder);
+
+    public FfmpegCapabilities(HashSet<string> availableEncoders, HashSet<string> availableDecoders, HashSet<string> availableMuxers)
+        : this(availableEncoders, availableDecoders, availableMuxers, preferredVideoEncoder: null, preferredHevcEncoder: null)
+    {
+    }
+
+    public FfmpegCapabilities(
+        HashSet<string> availableEncoders,
+        HashSet<string> availableDecoders,
+        HashSet<string> availableMuxers,
+        string? preferredVideoEncoder,
+        string? preferredHevcEncoder)
     {
         this.availableEncoders = availableEncoders;
         this.availableDecoders = availableDecoders;
         this.availableMuxers = availableMuxers;
+        this.PreferredVideoEncoder = preferredVideoEncoder;
+        this.PreferredHevcEncoder = preferredHevcEncoder;
     }
 
     public static FfmpegCapabilities Probe(string ffmpegPath)
@@ -57,7 +73,64 @@ internal sealed class FfmpegCapabilities
             if (names.Length > 0)
                 foreach (var name in names[0].Split(',', StringSplitOptions.RemoveEmptyEntries)) muxerSet.Add(name);
         }
-        return new FfmpegCapabilities(encoderSet, decoderSet, muxerSet);
+
+        // Active Hardware Probing (NVIDIA NVENC -> Intel QSV -> AMD AMF)
+        string? preferredH264 = null;
+        string? preferredHevc = null;
+
+        var h264Candidates = new[] { "h264_nvenc", "h264_qsv", "h264_amf" };
+        foreach (var candidate in h264Candidates)
+        {
+            if (encoderSet.Contains(candidate) && TestEncoder(ffmpegPath, candidate))
+            {
+                preferredH264 = candidate;
+                break;
+            }
+        }
+
+        var hevcCandidates = new[] { "hevc_nvenc", "hevc_qsv", "hevc_amf" };
+        foreach (var candidate in hevcCandidates)
+        {
+            if (encoderSet.Contains(candidate) && TestEncoder(ffmpegPath, candidate))
+            {
+                preferredHevc = candidate;
+                break;
+            }
+        }
+
+        return new FfmpegCapabilities(encoderSet, decoderSet, muxerSet, preferredH264, preferredHevc);
+    }
+
+    public static bool TestEncoder(string ffmpegPath, string encoder)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
+            foreach (var arg in new[] { "-v", "error", "-f", "lavfi", "-i", "color=black:s=64x64:d=0.05", "-c:v", encoder, "-f", "null", "-" })
+                process.StartInfo.ArgumentList.Add(arg);
+
+            if (!process.Start()) return false;
+            if (!process.WaitForExit(3000))
+            {
+                try { process.Kill(true); } catch { }
+                return false;
+            }
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static HashSet<string> ParseCodecNames(string output) => Regex.Matches(output, @"^\s*[A-Z\.]{6}\s+(\S+)", RegexOptions.Multiline)
@@ -82,10 +155,28 @@ internal sealed class FfmpegCapabilities
             : AudioEncoderFor(audioTarget) is not null);
     }
 
-    public string? EncoderFor(string target) =>
-        encoders.TryGetValue(target, out var encoderNames) ? encoderNames.FirstOrDefault(availableEncoders.Contains) : null;
+    public string? EncoderFor(string target) => EncoderFor(target, allowHardware: true);
 
-    public string? AudioEncoderFor(string target) => EncoderFor(target);
+    public string? EncoderFor(string target, bool allowHardware)
+    {
+        if (allowHardware && !string.IsNullOrEmpty(PreferredVideoEncoder) && target is "mp4" or "mov" or "mkv" or "avi")
+        {
+            if (availableEncoders.Contains(PreferredVideoEncoder))
+                return PreferredVideoEncoder;
+        }
+
+        if (allowHardware && !string.IsNullOrEmpty(PreferredHevcEncoder) && target is "heic")
+        {
+            if (availableEncoders.Contains(PreferredHevcEncoder))
+                return PreferredHevcEncoder;
+        }
+
+        return encoders.TryGetValue(target, out var encoderNames)
+            ? encoderNames.FirstOrDefault(availableEncoders.Contains)
+            : null;
+    }
+
+    public string? AudioEncoderFor(string target) => EncoderFor(target, allowHardware: false);
 
     public bool CanDecodeImage(string extension) =>
         imageDecoders.TryGetValue(extension, out var names) && names.Any(availableDecoders.Contains);
@@ -119,4 +210,3 @@ internal static class TextLineExtensions
 {
     public static IEnumerable<string> SplitLines(this string value) => value.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries);
 }
-
